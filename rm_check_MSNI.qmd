@@ -1,0 +1,393 @@
+---
+title: "MSNI Indicators codes RM"
+format: html
+df-print: paged 
+warning: false  #disables warnings
+editor: visual
+---
+
+## MSNI Standard Indicators codes
+
+These are bits of codes for most MSNI indicators in all sectors.
+
+The code is not perfect, and was not initially done to be reproducible across countries. It is however a good base to use for any MSNI coding.
+
+Keep in mind there may be mistakes of course.
+
+```{r, include = FALSE}
+#imports
+library(tidyverse)
+library(cleaningtools)
+library(addindicators)
+library(analysistools)
+```
+
+```{r, include=FALSE}
+#main
+df <- readxl::read_excel("output/MSNI_2023/Ner_msna_2023_msni_lsg_full_rm.xlsx")
+#loops
+df_all <- readRDS("data/ner_msna_clean_final_20231121.RDS")
+loop_listing<-df_all[[2]]
+loop_accouchement<-df_all[[3]]
+loop_chocs<-df_all[[4]]
+
+```
+
+## SECAL
+
+```{r, include=FALSE}
+#compute my FEWSNET matrix
+df <- df %>% add_fcm_phase(
+  fcs_column_name = "fcs_cat",
+  rcsi_column_name = "rcsi_cat",
+  hhs_column_name = "hhs_cat_ipc",
+  fcs_categories_acceptable = "Acceptable",
+  fcs_categories_poor = "Poor",
+  fcs_categories_borderline = "Borderline",
+  rcsi_categories_low = "No to Low",
+  rcsi_categories_medium = "Medium",
+  rcsi_categories_high = "High",
+  hhs_categories_none = "None",
+  hhs_categories_little = "Little",
+  hhs_categories_moderate = "Moderate",
+  hhs_categories_severe = "Severe",
+  hhs_categories_very_severe = "Very Severe"
+)
+
+
+```
+
+```{r}
+#table to compare with theirs
+table(df$SECAL_LSG, df$fs_lsg)
+```
+
+## Livelihood
+
+**msni_lcsi_strategie**
+
+```{r}
+# code LCSI
+df$lcsi_classe_hp <- df$lcsi_classe #rename theirs
+stress_strat <- c("f_strat_subsistance_betail","f_strat_subsistance_equipement" , "f_strat_subsistance_economie", "f_strat_subsistance_emprunter")
+crisis_strat <- c("f_strat_subsistance_non_alimentaire","f_strat_subsistance_ecole", "f_strat_subsistance_transport")
+emerg_strat <- c("f_strat_subsistance_extreme_betail", "f_strat_subsistance_extreme_maison" , "f_strat_subsistance_extreme_mendier")
+df <- df %>% add_lcsi(lcsi_stress_vars = stress_strat, 
+                lcsi_crisis_vars = crisis_strat,
+                lcsi_emergency_vars = emerg_strat,
+                yes_val ="oui_besoin",
+                no_val = "non_pas_besoin",
+                exhausted_val = "non_strat_epuise",
+                not_applicable_val = "non_pertinent")
+```
+
+```{r}
+#table to compare LCSIs
+table(df$lcsi_classe_hp, df$lcsi_classe)
+```
+
+```{r}
+#  table to visualize LCSI - indicator
+table(df$msni_cm_lcsi_strategie, df$lcsi_classe)
+```
+
+**msni_cm_source_revenu:**
+
+```{r}
+col_stable <-c("l_travail_salarie_rec","l_commercial_rec")
+col_instable <-c("l_travail_journalier_rec","l_production_personnel_rec","l_aide_social_rec","l_location_rec","l_transfert_rec")
+col_urgence <-c("l_pret_familiale_rec","l_pret_communautaire_rec","l_aide_humanitaire_rec")
+
+#count nb of sources per type
+df <- df %>% mutate(count_stable = rowSums(df[,col_stable])) %>%
+  mutate(count_unstable = rowSums(df[,col_instable]))%>%
+  mutate(count_urgence =  rowSums(df[,col_urgence]))
+
+#make the indicator
+df <- df %>% mutate(livelihhod_crit_2_rm = case_when(
+  count_stable>0 ~1,
+  count_unstable>1 & count_stable== 0~2,
+  count_unstable ==1  & count_stable== 0~3,
+  count_unstable==0 & count_stable== 0 | l_revenu_total==0 ~4,
+  TRUE ~999
+))
+```
+
+```{r}
+table(df$msni_cm_source_revenu, df$livelihhod_crit_2_rm)
+```
+
+**msni_cm_perte_travail**
+
+```{r}
+col_perte_travail <- c("l_perte_travail_permanent_homme",	"l_perte_travail_permanent_femme",	"l_perte_travail_temporaire_homme",	"l_perte_travail_temporaire_femme")
+df <- df %>% mutate(perdu_travail_rm = rowSums(df[,col_perte_travail], na.rm=T)) %>%
+  mutate(liv_critic3 = ifelse(perdu_travail_rm>0, 3,1))
+
+
+```
+
+```{r}
+table(df$msni_cm_perte_travail, df$liv_critic3)
+```
+
+## EHA
+
+**msni_eha_eau_distance**
+
+```{r, include=FALSE}
+premise <- c("canalisation") 
+ameliore <-  c("canalisation_terrain", "canalisation_voisin", "robinet_public", "forage", "puit_protege", "source_amenage", "camion", "vendeur_fixe", "bouteille", "sache") 
+non_ameliore <-  c("puit_non_protege","source_non_amenage", "pluie", "vendeur")
+surface <- c("surface") 
+
+
+df <- df %>% mutate(wash_crit_1_RM = 
+                      case_when(h_source_boire %in% surface~5,
+                                h_source_boire %in% non_ameliore ~4,
+                                (h_source_boire %in% ameliore & (grepl("31mn_moins_1h|1h_ou_plus", h_source_distance_rec)))  ~3,
+              (h_source_boire %in% ameliore & (grepl("30_mn_ou_moins|canalisation", h_source_distance_rec))) ~2,
+     h_source_boire %in% premise  ~1,
+     TRUE~999
+))
+
+
+```
+
+```{r, include=T}
+table(df$msni_eha_eau_distance, df$wash_crit_1_RM, useNA="always")
+```
+
+**msni_eha_eau_frequence**
+
+```{r}
+table(df$msni_eha_eau_frequence, df$h_frequence_eau)
+```
+
+**msni_eha_assainissement**
+
+```{r, include =FALSE}
+san_amelioree <- c("canalise", "toilette_fosse",
+                   "fosse_septique", "fosse_chesse","egout", "endroit", "latrine", "compostage")
+san_non_amelioree <-  c("fosse_ouvert", "sac", "seau")
+san_aucun <- c("aucun")
+
+df <- df %>% mutate(san_partage =  case_when( h_latrine_partage == "non" | h_latrine_partage_nombre_rec == 0 ~ "no",
+                                              h_latrine_partage_nombre_rec >= 1 & h_latrine_partage_nombre_rec <=3 ~ "1-20ppl",h_latrine_partage_nombre_rec >= 4 &  h_latrine_partage_nombre_rec <= 7~ "21-50ppl", h_latrine_partage_nombre_rec >=8 ~ "51+ppl",  TRUE ~ "999"))
+                                                       
+                                                      
+df <- df %>%mutate(msni_wash_crit_1_RM = case_when(h_latrine %in% san_aucun ~ 5, 
+h_latrine %in% san_non_amelioree | (h_latrine %in% san_amelioree & san_partage == "51+ppl") ~ 4,
+ (h_latrine %in% san_amelioree & san_partage == "21-50ppl") ~ 3,(h_latrine %in% san_amelioree & san_partage == "1-20ppl") ~ 2,
+(h_latrine %in% san_amelioree & san_partage == "no") ~ 1, TRUE ~ 999
+  ))
+```
+
+```{r, include = FALSE}
+table(df$msni_eha_assainissement, df$msni_wash_crit_1_RM, useNA="always")
+```
+
+**eha_hygiene_sev_score**
+
+```{r}
+df <- df %>% mutate(wash_crit_4_RM = case_when(
+  h_lieu_lavage_main %in% c("aucun", "autre") | grepl("pas_detergent|cendre", h_article_hygienique)~2,
+  h_lieu_lavage_main %in% c("logement", "terrain", "seau") & grepl("savon||detergent", h_article_hygienique) &!grepl("pas", h_article_hygienique)~1, 
+  
+  TRUE ~999
+))
+
+
+```
+
+```{r}
+table(df$eha_hygiene_sev_score, df$wash_crit_4_RM, useNA="always")
+```
+
+## ABRI
+
+**msni_abri_crit_1**
+
+```{r}
+#make definition de dommage ou probleme dommage
+abris_adequate <- c("abri_durable","case",  "abri_transitionnel",  "tente_nomade")
+abris_inadequate <- c("paille","tente_traditionnelle","batiment_public","batiment_prive","abri_urgence")
+abris_aucun <- c("air_libre")
+
+df <- df %>% mutate(abris_damage = as.integer(rowSums(across(c(
+  a_abri_probleme_fissure,
+  a_abri_probleme_risque_effondrement,
+  a_abri_probleme_dommage_porte,
+  a_abri_probleme_dommage_sols,
+  a_abri_probleme_dommage_murs,
+  a_abri_probleme_dommage_termite,
+  a_abri_probleme_manque_intimite,
+  a_abri_probleme_manque_chaleur,
+  a_abri_probleme_ventilation,
+  a_abri_probleme_fuites_pluie,
+  a_abri_probleme_fermeture,
+  a_abri_probleme_alimentation_endomage
+  ))) > 0))
+
+df <- df %>% mutate(msni_abri_crit_1_RM = case_when(
+  a_abri_type %in% abris_aucun | a_abri_probleme_effondrement_totale==1 ~5, 
+  a_abri_type %in% abris_inadequate &  (abris_damage==1)  ~3,
+  a_abri_type %in% abris_adequate & (abris_damage==1) ~2,
+  a_abri_type %in% abris_inadequate & a_abri_probleme_aucun ==1  ~2,
+  a_abri_type %in% abris_adequate & a_abri_probleme_aucun ==1  ~1,
+  a_abri_type %in% abris_inadequate & abris_damage==1 ~888,
+  TRUE  ~999
+  
+))
+```
+
+```{r}
+table(df$msni_abna_abri_adequat, df$msni_abri_crit_1_RM, useNA="always")
+```
+
+```{r}
+#example of how to visualize differences and understand where they come from
+df %>% filter(msni_abna_abri_adequat != msni_abri_crit_1_RM) %>% group_by(msni_abna_abri_adequat, msni_abri_crit_1_RM, a_abri_type,a_abri_probleme) %>% tally() %>% select(msni_abna_abri_adequat, msni_abri_crit_1_RM, a_abri_type,a_abri_probleme) 
+```
+
+## SANTE
+
+```{r, include=FALSE}
+#WG for children
+loop_listing<-loop_listing %>% 
+  mutate(child_disability = case_when(
+  w_voir %in% c('beaucoup', 'impossible') |
+    w_entendre %in% c('beaucoup', 'impossible') |
+    w_souvenir %in% c('beaucoup', 'impossible') |
+    w_prendre_soin  %in% c('beaucoup', 'impossible') |
+    w_marcher %in% c('beaucoup', 'impossible') |
+    w_communiquer %in% c('beaucoup', 'impossible') ~1, 
+  (w_voir != 'beaucoup' & w_voir != 'impossible') & !is.na(w_voir) &
+    (w_entendre != 'beaucoup' & w_entendre != 'impossible') & !is.na(w_entendre) &
+    (w_souvenir != 'beaucoup' &w_souvenir != 'impossible') & !is.na(w_souvenir) &
+    (w_prendre_soin  != 'beaucoup' & w_prendre_soin != 'impossible') & !is.na(w_prendre_soin) &
+    (w_marcher != 'beaucoup' & w_marcher!= 'impossible') & !is.na(w_marcher) &
+    (w_communiquer != 'beaucoup' & w_communiquer!= 'impossible') & !is.na(w_communiquer) ~ 0,
+  TRUE ~ NA_real_))
+
+#WG for adults
+loop_listing<-loop_listing %>% 
+  mutate(adult_disability = case_when(
+  w_voir_adulte %in% c('beaucoup', 'impossible') |
+    w_entendre_adulte %in% c('beaucoup', 'impossible') |
+    w_souvenir_adulte %in% c('beaucoup', 'impossible') |
+    w_prendre_soin_adulte  %in% c('beaucoup', 'impossible') |
+    w_marcher_adulte %in% c('beaucoup', 'impossible') |
+    w_communiquer_adulte %in% c('beaucoup', 'impossible') ~1, 
+  (w_voir_adulte != 'beaucoup' & w_voir_adulte != 'impossible') & !is.na(w_voir_adulte) &
+    (w_entendre_adulte != 'beaucoup' & w_entendre_adulte != 'impossible') & !is.na(w_entendre_adulte) &
+    (w_souvenir_adulte != 'beaucoup' &w_souvenir_adulte != 'impossible') & !is.na(w_souvenir_adulte) &
+    (w_prendre_soin_adulte  != 'beaucoup' & w_prendre_soin_adulte != 'impossible') & !is.na(w_prendre_soin_adulte) &
+    (w_marcher_adulte != 'beaucoup' & w_marcher_adulte!= 'impossible') & !is.na(w_marcher_adulte) &
+    (w_communiquer_adulte != 'beaucoup' & w_communiquer_adulte!= 'impossible') & !is.na(w_communiquer_adulte) ~ 0,
+  TRUE ~ NA_real_))
+
+loop_listing<-loop_listing %>%  mutate(person_disability = ifelse(adult_disability+child_disability>0,1,0))
+
+#profile per individual
+loop_listing <- loop_listing  %>%mutate(
+  profile_num = case_when(
+    s_sante_probleme=="non" & person_disability==0 ~ 1,
+    s_sante_probleme== "non" & person_disability==1 ~ 3,
+    s_sante_probleme== "oui"& s_soins_obtenu == "oui" & person_disability == 0 ~ 2,
+    s_sante_probleme=="oui" & s_soins_obtenu == "oui" & person_disability == 1 ~ 3,
+    s_sante_probleme=="oui" & s_soins_obtenu == "non" & person_disability == 0 ~ 3,
+    s_sante_probleme=="oui" & s_soins_obtenu == "non" & person_disability == 1 ~ 4,
+    TRUE ~ NA_real_
+  )
+)
+
+#bringing at HH level
+loop_ind_sev <- loop_listing %>% group_by(submission_uuid) %>% summarize(severity = max(profile_num, na.rm=FALSE))
+df <- df %>% left_join(loop_ind_sev, by = join_by(uuid == submission_uuid))
+```
+
+```{r}
+#example to check indviduals within households
+uuids <- df %>% filter(msni_sante== 2 & severity==1) %>% pull(uuid)
+loop_listing %>% filter(submission_uuid == uuids[1]) %>% select(submission_uuid, s_sante_probleme, s_soins_obtenu, w_voir,w_entendre, w_souvenir, w_prendre_soin, w_marcher, w_communiquer, ends_with("_adulte") )
+```
+
+## EDUCATION
+
+**msni_educ_protect**
+
+```{r, include=FALSE }
+reasons_4 <- c("risques_prot_trajet", "risques_ecole", "travail_enfant", "handicap", "recrue_gane", "mariage")
+loop_listing <- loop_listing%>% mutate(edu_crit_1_RM = case_when(
+  e_probleme_acces %in% reasons_4 ~4,
+  e_inscription_ecole =="non" | e_frequentation_continue=="non" ~3,
+  e_inscription_ecole=="oui" & e_frequentation_continue=="oui" ~1,
+  c_age_hh>=7 & c_age_hh<=17 ~ NA_real_,
+  TRUE~1
+))
+loop_ind_ed <- loop_listing %>% group_by(submission_uuid) %>% summarize(edu_crit_1_RM = max(edu_crit_1_RM, na.rm=F))
+df <- df%>% left_join(loop_ind_ed, by = join_by(uuid == submission_uuid))
+```
+
+```{r, include=FALSE}
+#example to check indviduals within households
+uuids <- df %>% filter(edu_crit_1_RM==1 & is.na(msni_educ_protect)) %>% pull(uuid)
+loop_listing %>% filter(submission_uuid == uuids[1]) %>% select(edu_crit_1_RM, e_frequentation_continue, e_inscription_ecole, e_probleme_acces)
+```
+
+## PROTECTION
+
+**msni_protect_moins_18an**
+
+```{r, include=FALSE}
+df <- df %>% mutate(pro_crit_1_RM = case_when(
+c_raison_enfant_depart_rejoindre_groupe_arme == 1|c_raison_enfant_depart_kidnappe== 1|c_raison_enfant_depart_disparu == 1|c_raison_enfant_depart_detention== 1~5,
+c_enfant_vivant_ailleurs == "oui" & (c_raison_enfant_depart_marie==1 |c_raison_enfant_depart_recherche_travail==1  ) ~4,
+c_enfant_vivant_ailleurs == "oui"& c_raison_enfant_depart_etude== 1~ 1,
+c_enfant_vivant_ailleurs=="non" ~1,
+TRUE ~ 999
+))
+```
+
+```{r, include=T}
+table(df$msni_protect_moins_18an, df$pro_crit_1_RM, useNA="always")
+```
+
+**msni_protect_12_17an**
+
+```{r}
+loop_listing <- loop_listing %>% mutate(
+  mariage_3 = case_when(p_statut_enfant %in% c("concubinage","divorce","marie","veuf") ~4,
+                        p_statut_enfant=="celibataire"~0,
+                        c_age_hh>=12 & c_age_hh<17 ~NA_real_,
+                        TRUE ~1)
+)
+loop_ind_prot <- loop_listing %>% group_by(submission_uuid) %>% summarize(mariage_3 = max(mariage_3, na.rm=F))
+df <- df%>% left_join(loop_ind_prot, by = join_by(uuid == submission_uuid))
+```
+
+```{r, include=T}
+table(df$msni_protect_12_17an, df$mariage_3, useNA="always")
+```
+
+```{r, include=T}
+#example to check indviduals within households
+uuids <- df %>% filter(mariage_3==4 & msni_protect_12_17an==1) %>% pull(uuid)
+loop_listing %>% filter(submission_uuid == uuids[2]) %>% select(p_statut_enfant, c_age_hh)
+```
+
+## LSGs & MSNI
+
+```{r}
+source("function/rm_max_lsg.R") #from the impact-initiatives github
+
+#education
+df$LSG_EDUC_RM <- df %>% make_lsg(crit_to_4 =  c("msni_educ_protect", "msni_educ_acces"))
+table(df$LSG_EDUC_RM, df$EDUCATION_LSG, useNA="always")
+
+#ABNA
+df$LSG_ABNA_RM <- df %>% make_lsg(crit_to_4plus = "msni_abna_abri_adequat", crit_to_2 = "msni_abna_abri_espace")
+table(df$LSG_ABNA_RM, df$ABNA_LSG, useNA="always")
+
+```
